@@ -1,0 +1,174 @@
+
+#include <xc.h>
+#include <htc.h>
+#include <i2c.h>
+#include <stdio.h>
+#define SCL TRISC3 // I2C bus
+#define SDA TRISC4 //
+#define SCL_IN RC3    //
+#define SDA_IN RC4    //
+#define EEPROM 0xA0 // I2C EEPROM, write lower blk
+#define EEPROMR 0xA1 // I2C EEPROM, read lower blk
+#define EEPROMW_HB 0xA8 // I2C EEPROM, write upper blk
+#define EEPROMR_HB 0xA9 // I2C EEPROM, read upper blk
+#define DAC 0x58 // I2C DAC 01011000
+// #pragma config statements should precede project file includes.
+// Use project enums instead of #define for ON and OFF.
+
+// CONFIG1H
+#pragma config FOSC = INTIO67   // Oscillator Selection bits (Internal oscillator block, port function on RA6 and RA7)
+#pragma config WDTEN = OFF       // Watchdog Timer Enable bit (WDT is always Disabled.)
+#pragma config LVP = OFF         // Single-Supply ICSP Enable bit (Single-Supply ICSP Disabled)
+
+void Initialize();                                  // Function to set the PIC for the desired operation i.e. AtoD Conversion
+static unsigned char GetAnalogVoltage();			// Function that gets thhj;..e converted representation of the analog input
+void SetOutput(unsigned char ADPortVal);			// Function to set the output port based on the conversion value
+interrupt timer_isr(void); 
+
+void main()
+{
+    volatile unsigned char bufptr, interrupt_flag;
+    volatile unsigned char buf_flag;
+    volatile unsigned char record_mode, playback_mode;
+    volatile unsigned char buf_1[64], buf_2[64];
+    Initialize();                                    // Call the Initialize function for all your one time setups
+	while(1) 
+	{
+         ADReading = GetAnalogVoltage();
+         
+	}
+}	
+interrupt timer_isr(void)
+{
+    TMR2IF=0; //clear timer interrupt flag
+    if (record_mode) 
+    {
+        //read A/D register, save in buffer
+        if (!buf_flag) buf_2[bufptr] = ADRESH;
+
+        else buf_1[bufptr] = ADRESH;
+            GODONE = 1; // start new conversion
+            bufptr++;
+            if (bufptr == 64)
+                {
+                bufptr = 0;
+                interrupt_flag = 1;
+                // toggle buffer flag
+                buf_flag = ~buf_flag;
+                }
+    }
+    if (playback_mode) 
+        {
+        interrupt_flag = 1;
+        }
+}// end if (TIMR2IF)                   
+do_record()
+{
+    unsigned int addr = 0; 
+    buf_flag = 0;
+    record_mode = 1; //
+    GODONE = 1; // start new conversion
+                // enable TMR2 interrupt
+    TMR2IF = 0; 
+    TMR2IE = 1;
+    IPEN = 0; 
+    PEIE = 1; 
+    GIE = 1;
+    TMR2ON = 1; // start timer 2 //
+    do 
+    {
+        while (!interrupt_flag)
+    }; // wait for block write
+    // do block write //
+    interrupt_flag = 0;
+    if (buf_flag)
+        i2c_memwrite(EEPROM,addr,buf_2);
+    else
+        i2c_memwrite(EEPROM,addr,buf_1);
+    addr = addr + 64;
+        // exit when addr wraps to zero
+    }while(addr);
+    pcrlf ();
+}
+
+
+
+
+static unsigned char GetAnalogVoltage()
+{
+    static unsigned char ADRegVal;  // define a variable to hold the ADRESH and ADRESL register value
+    ADON=1;                                // turn the AtoD converter on
+    GO_DONE=1;                                   // Set GO_DONE bit to start AtoD conversion
+    while(GO_DONE);                               // Wait for GO_DONE bit to go low signaling conversion is complete
+    ADRegVal = ADRESH;                            // Store the ADRESH value in a variable called ADRegVal
+    ADON=0;                                // Turn AtoD Converter off
+    return ADRegVal;                // Return the ADRegVal to the calling function
+}
+//*********************************************************************
+// Function name and Detailed description
+// Arguments: None
+// Returns: None
+//*********************************************************************
+void Initialize()
+{
+}
+void I2C_Wait()
+{
+  while ((SSPSTAT & 0x04) || (SSPCON2 & 0x1F));
+}
+void I2C_Master_Init()
+{
+  SSPCON = 0x28;
+  SSPCON2 = 0x00;
+  SSPSTAT = 0x00;
+  SSPADD = ((_XTAL_FREQ/4)/I2C_BaudRate) - 1;
+  SCL = 1;
+  SDA = 1;
+}
+void I2C_Start()
+{
+  //---[ Initiate I2C Start Condition Sequence ]---
+  I2C_Wait();
+  SEN = 1;
+}
+void I2C_Stop()
+{
+  //---[ Initiate I2C Stop Condition Sequence ]---
+  I2C_Wait();
+}
+void I2C_Restart()
+{
+  //---[ Initiate I2C Restart Condition Sequence ]---
+  I2C_Wait();
+  RSEN = 1;
+}
+void I2C_ACK(void)
+{
+  //---[ Send ACK - For Master Receiver Mode ]---
+  I2C_Wait();
+  ACKDT = 0; // 0 -> ACK, 1 -> NACK
+  ACKEN = 1; // Send ACK Signal!
+}
+void I2C_NACK(void)
+{
+  //---[ Send NACK - For Master Receiver Mode ]---
+  I2C_Wait();
+  ACKDT = 1; // 1 -> NACK, 0 -> ACK
+  ACKEN = 1; // Send NACK Signal!
+}
+unsigned char I2C_Write(unsigned char Data)
+{
+  //---[ Send Byte, Return The ACK/NACK ]---
+  I2C_Wait();
+  SSPBUF = Data;
+  I2C_Wait();
+  return ACKSTAT;
+}
+unsigned char I2C_Read_Byte(void)
+{
+  //---[ Receive & Return A Byte ]---
+  RCEN = 1;        // Enable & Start Reception
+  while(!SSPIF);   // Wait Until Completion
+  SSPIF = 0;       // Clear The Interrupt Flag Bit
+  return SSPBUF;   // Return The Received Byte
+}
